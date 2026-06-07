@@ -1,0 +1,28 @@
+{
+  "name": "nanobot-ts",
+  "version": "0.1.0",
+  "description": "TypeScript rewrite of nanobot personal AI assistant",
+  "type": "module",
+  "bin": {
+    "nanobot": "./dist/src/cli/main.js"
+  },
+  "files": [
+    "dist/src",
+    "templates",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run typecheck",
+    "test": "node --test \"dist/tests/**/*.test.js\"",
+    "verify": "npm run lint && npm run build && npm run test"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "typescript": "^5.8.3"
+  }
+}
