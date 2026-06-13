@@ -47,6 +47,7 @@ export interface ChatOptions {
   temperature?: number;
   reasoningEffort?: string;
   toolChoice?: string | JsonObject;
+  signal?: AbortSignal;
 }
 
 export interface LLMProvider {
