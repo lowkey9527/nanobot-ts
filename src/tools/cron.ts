@@ -1,67 +1,18 @@
-import { randomUUID } from "node:crypto";
-
 import { type JsonObject } from "../config/schema.js";
+import {
+  CronStore,
+  getCronExecutionContext,
+  isValidCronEverySchedule,
+  isValidCronSchedule,
+  isValidTimezone,
+  type CronJob,
+  type CronJobKind,
+} from "../cron/service.js";
 
 import { type ToolDefinition, toolError } from "./types.js";
 
-export type CronJobKind = "cron" | "at" | "every";
-
-export interface CronJob {
-  id: string;
-  kind: CronJobKind;
-  schedule?: string;
-  at?: string;
-  every?: string;
-  timezone: string;
-  task: JsonObject;
-  name?: string;
-  protected: boolean;
-  status: "scheduled";
-  store: "memory";
-  createdAt: string;
-  updatedAt: string;
-}
-
-export class CronStore {
-  private readonly jobs = new Map<string, CronJob>();
-
-  create(input: Omit<CronJob, "id" | "status" | "store" | "createdAt" | "updatedAt">): CronJob {
-    const now = new Date().toISOString();
-    const job: CronJob = {
-      ...input,
-      id: `cron_${randomUUID()}`,
-      status: "scheduled",
-      store: "memory",
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    this.jobs.set(job.id, job);
-    return job;
-  }
-
-  list(): CronJob[] {
-    return [...this.jobs.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-  }
-
-  get(id: string): CronJob | undefined {
-    return this.jobs.get(id);
-  }
-
-  remove(id: string, options: { force?: boolean } = {}): CronJob | undefined | "protected" {
-    const job = this.jobs.get(id);
-    if (!job) {
-      return undefined;
-    }
-
-    if (job.protected && options.force !== true) {
-      return "protected";
-    }
-
-    this.jobs.delete(id);
-    return { ...job, status: "scheduled" };
-  }
-}
+export { CronStore };
+export type { CronJob, CronJobKind };
 
 export interface CronToolOptions {
   store?: CronStore;
@@ -85,6 +36,7 @@ export function createCronTool(options: CronToolOptions = {}): ToolDefinition {
         task: { type: "object" },
         name: { type: "string" },
         protected: { type: "boolean" },
+        removeAfterRun: { type: "boolean" },
         force: { type: "boolean" },
       },
     },
@@ -98,7 +50,7 @@ export function createCronTool(options: CronToolOptions = {}): ToolDefinition {
           content: JSON.stringify({ jobs }),
           action,
           status: "listed",
-          store: "memory",
+          store: store.kind,
           count: jobs.length,
           jobs,
         };
@@ -123,7 +75,7 @@ export function createCronTool(options: CronToolOptions = {}): ToolDefinition {
           content: JSON.stringify(jobToJson(removed)),
           action,
           status: "removed",
-          store: "memory",
+          store: store.kind,
           jobId: removed.id,
           job: jobToJson(removed),
         };
@@ -131,6 +83,11 @@ export function createCronTool(options: CronToolOptions = {}): ToolDefinition {
 
       if (action !== "create") {
         return toolError(`Unsupported cron action '${action}'`);
+      }
+
+      const cronContext = getCronExecutionContext();
+      if (cronContext) {
+        return toolError(`Cannot create cron jobs while executing cron job '${cronContext.jobId}'`);
       }
 
       const scheduleInput = typeof input.schedule === "string" ? input.schedule.trim() : "";
@@ -162,6 +119,7 @@ export function createCronTool(options: CronToolOptions = {}): ToolDefinition {
         task,
         name: typeof input.name === "string" ? input.name : undefined,
         protected: input.protected === true,
+        removeAfterRun: input.removeAfterRun === true,
       });
 
       return {
@@ -176,6 +134,7 @@ export function createCronTool(options: CronToolOptions = {}): ToolDefinition {
         status: job.status,
         store: job.store,
         protected: job.protected,
+        removeAfterRun: job.removeAfterRun === true,
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
       };
@@ -201,81 +160,11 @@ function normalizeSchedule(schedule: string, at: string, every: string): Pick<Cr
     return { kind: "at", at: date.toISOString() };
   }
 
-  if (!isValidEvery(every)) {
+  if (!isValidCronEverySchedule(every)) {
     return "Invalid every schedule; expected a duration like 30s, 15m, 2h, or 1d";
   }
 
   return { kind: "every", every };
-}
-
-function isValidCronSchedule(schedule: string): boolean {
-  const fields = schedule.split(/\s+/);
-  if (fields.length !== 5 && fields.length !== 6) {
-    return false;
-  }
-
-  const ranges = fields.length === 5
-    ? [
-        [0, 59],
-        [0, 23],
-        [1, 31],
-        [1, 12],
-        [0, 7],
-      ]
-    : [
-        [0, 59],
-        [0, 59],
-        [0, 23],
-        [1, 31],
-        [1, 12],
-        [0, 7],
-      ];
-
-  return fields.every((field, index) => isValidCronField(field, ranges[index][0], ranges[index][1]));
-}
-
-function isValidCronField(field: string, min: number, max: number): boolean {
-  return field.split(",").every((part) => isValidCronPart(part, min, max));
-}
-
-function isValidCronPart(part: string, min: number, max: number): boolean {
-  const [base, step] = part.split("/");
-  if (step !== undefined && !isInRange(step, 1, max)) {
-    return false;
-  }
-
-  if (base === "*") {
-    return true;
-  }
-
-  if (base.includes("-")) {
-    const [start, end] = base.split("-");
-    return isInRange(start, min, max) && isInRange(end, min, max) && Number(start) <= Number(end);
-  }
-
-  return isInRange(base, min, max);
-}
-
-function isInRange(value: string, min: number, max: number): boolean {
-  if (!/^\d+$/.test(value)) {
-    return false;
-  }
-
-  const numeric = Number(value);
-  return numeric >= min && numeric <= max;
-}
-
-function isValidEvery(value: string): boolean {
-  return /^[1-9]\d*[smhd]$/.test(value);
-}
-
-function isValidTimezone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function toJsonObject(value: unknown): JsonObject | undefined {
@@ -301,9 +190,15 @@ function jobToJson(job: CronJob): JsonObject {
     task: job.task,
     name: job.name ?? null,
     protected: job.protected,
+    removeAfterRun: job.removeAfterRun === true,
     status: job.status,
     store: job.store,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
+    lastRunAt: job.lastRunAt ?? null,
+    nextRunAt: job.nextRunAt ?? null,
+    runCount: job.runCount,
+    failureCount: job.failureCount,
+    history: JSON.parse(JSON.stringify(job.history)),
   };
 }

@@ -50,6 +50,30 @@ export type {
 export type { CoreToolOptions } from "./tools/registry.js";
 export { CronStore } from "./tools/cron.js";
 export type { CronJob, CronJobKind, CronToolOptions } from "./tools/cron.js";
+export { CronService, getCronExecutionContext } from "./cron/service.js";
+export type {
+  CronCallback,
+  CronCallbackResult,
+  CronExecutionContext,
+  CronJobCreateInput,
+  CronJobStatus,
+  CronRunHistoryEntry,
+  CronRunStatus,
+  CronStoreKind,
+  CronTimerHandle,
+  CronTimerScheduler,
+} from "./cron/service.js";
+export { HeartbeatService, heartbeatHasActiveTasks, pickHeartbeatTarget } from "./heartbeat/service.js";
+export type {
+  HeartbeatAgentCallback,
+  HeartbeatAgentInput,
+  HeartbeatAgentResponse,
+  HeartbeatPublisher,
+  HeartbeatRunResult,
+  HeartbeatServiceOptions,
+  HeartbeatSessionEntry,
+  HeartbeatTarget,
+} from "./heartbeat/service.js";
 export type { McpToolCall, McpToolClient, McpToolHandler, McpToolOptions, McpToolServerConfig } from "./tools/mcp.js";
 export type { SpawnHandler, SpawnReasoningEffort, SpawnRequest, SpawnToolOptions } from "./tools/spawn.js";
 export type {
